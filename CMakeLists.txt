@@ -3,12 +3,11 @@ project(vulkan_learn)
 
 set(CMAKE_CXX_STANDARD 26)
 
-
 add_executable(vulkan_learn main.cpp  )
-if(WIN32)
+if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     #std::print and std::println (requires linking with -lstdc++exp on Windows). by: https://gcc.gnu.org/gcc-14/changes.html#:~:text=std%3A%3Aprint%20and%20std%3A%3Aprintln%20(requires%20linking%20with%20%2Dlstdc%2B%2Bexp%20on%20Windows).
     target_link_libraries(vulkan_learn PRIVATE -lstdc++exp )
-endif (WIN32)
+endif (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 
 find_package(glfw3 CONFIG REQUIRED)
 target_link_libraries(vulkan_learn PRIVATE glfw)
