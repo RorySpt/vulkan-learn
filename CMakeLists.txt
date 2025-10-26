@@ -1,0 +1,26 @@
+﻿cmake_minimum_required(VERSION 4.0)
+project(vulkan_learn)
+
+set(CMAKE_CXX_STANDARD 26)
+
+
+add_executable(vulkan_learn main.cpp  )
+if(WIN32)
+    #std::print and std::println (requires linking with -lstdc++exp on Windows). by: https://gcc.gnu.org/gcc-14/changes.html#:~:text=std%3A%3Aprint%20and%20std%3A%3Aprintln%20(requires%20linking%20with%20%2Dlstdc%2B%2Bexp%20on%20Windows).
+    target_link_libraries(vulkan_learn PRIVATE -lstdc++exp )
+endif (WIN32)
+
+find_package(glfw3 CONFIG REQUIRED)
+target_link_libraries(vulkan_learn PRIVATE glfw)
+
+find_package(imgui CONFIG REQUIRED)
+target_link_libraries(vulkan_learn PRIVATE imgui::imgui)
+
+find_package(glm CONFIG REQUIRED)
+target_link_libraries(vulkan_learn PRIVATE glm::glm)
+
+find_package(Vulkan REQUIRED)
+target_link_libraries(vulkan_learn PRIVATE Vulkan::Vulkan)
+
+find_package(magic_enum CONFIG REQUIRED)
+target_link_libraries(vulkan_learn PRIVATE magic_enum::magic_enum)
