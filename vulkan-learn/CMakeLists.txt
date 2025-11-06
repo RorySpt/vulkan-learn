@@ -1,10 +1,11 @@
-﻿set(target_name vulkan_learn)
+set(target_name vulkan_learn)
 project(${target_name})
 
-
+add_definitions(-D_GLIBCXX_USE_CXX11_ABI=4)
 add_executable(${target_name} main.cpp
         HelloTriangleApplication.cpp
         HelloTriangleApplication.h)
+
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     #std::print and std::println (requires linking with -lstdc++exp on Windows). by: https://gcc.gnu.org/gcc-14/changes.html#:~:text=std%3A%3Aprint%20and%20std%3A%3Aprintln%20(requires%20linking%20with%20%2Dlstdc%2B%2Bexp%20on%20Windows).

@@ -1,0 +1,1 @@
+add_executable(vulkan_tool vulkan_tool.cpp)

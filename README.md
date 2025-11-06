@@ -5,5 +5,7 @@
 
 ## 教程
 [Khronos Vulkan 教程](https://docs.vulkan.net.cn/tutorial/latest/03_Drawing_a_triangle/00_Setup/00_Base_code.html)
+
+[Vulkan Documentation](https://docs.vulkan.org/spec/latest/chapters/fundamentals.html)
 ## 使用说明
 工具链：clion + cmake + vcpkg
