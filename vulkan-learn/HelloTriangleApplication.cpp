@@ -3,7 +3,7 @@
 //
 
 #include "HelloTriangleApplication.h"
-
+#include <print>
 void HelloTriangleApplication::createLogicalDevice()
 {
     const auto indices = findQueueFamiliesIndex(physicalDevice, vk_pred::is_vk_queue_graphics);
@@ -35,6 +35,9 @@ void HelloTriangleApplication::createLogicalDevice()
     if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &logicalDevice) != VK_SUCCESS)
     {
         throw std::runtime_error("failed to create logical device!");
+    }else
+    {
+        std::println("{}","create logicalDevice");
     }
 }
 
