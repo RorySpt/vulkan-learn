@@ -257,6 +257,15 @@ private:
 
     void createGraphicsPipeline();
     VkShaderModule createShaderModule(std::span<char> code);
+
+    void createRenderPass();
+
+    void createFramebuffers();
+
+    void createCommandPool();
+
+    void createCommandBuffer();
+
     void initVulkan() {
         createInstance();
         setupDebugMessage();
@@ -265,8 +274,12 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageView();
+        createRenderPass();
         createGraphicsPipeline();
-        createVertexBuffer();
+        createFramebuffers();
+        createCommandPool();
+        createCommandBuffer();
+        //createVertexBuffer();
 
     }
 
@@ -279,20 +292,7 @@ private:
         }
     }
 
-    void cleanup() {
-        for (const auto imageView : swapChainImageViews) {
-            vkDestroyImageView(logicalDevice, imageView, nullptr);
-        }
-        vkDestroySwapchainKHR(logicalDevice, swapChain, nullptr);
-        vkDestroySurfaceKHR(vkInstance, surface, nullptr);
-        vkDestroyDevice(logicalDevice, nullptr);
-        if (enableValidationLayers) {
-            DestroyDebugUtilsMessengerEXT(vkInstance, debugMessenger, nullptr);
-        }
-        vkDestroyInstance(vkInstance, nullptr);
-        glfwDestroyWindow(window);
-        glfwTerminate();
-    }
+    void cleanup();
 
     GLFWwindow *window = nullptr;
     VkInstance vkInstance = nullptr;
@@ -307,6 +307,12 @@ private:
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
+    VkPipelineLayout pipelineLayout;
+    VkRenderPass renderPass;
+    VkPipeline graphicsPipeline;
+    std::vector<VkFramebuffer> swapChainFramebuffers;
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
 };
 
 
