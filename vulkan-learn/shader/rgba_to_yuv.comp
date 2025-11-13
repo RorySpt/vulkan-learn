@@ -1,0 +1,46 @@
+#version 450
+layout (local_size_x = 16, local_size_y = 16) in;
+layout (binding = 0) uniform sampler2D rgbaImage; // 输入RGBA图像
+layout (binding = 1, r8) uniform writeonly image2D yPlane; // Y平面
+layout (binding = 2, r8) uniform writeonly image2D uPlane; // U平面
+layout (binding = 3, r8) uniform writeonly image2D vPlane; // V平面
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(yPlane); // Y平面大小
+
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    // 读取RGBA值（假设归一化到[0,1]）
+    vec4 rgba = texelFetch(rgbaImage, coord, 0);
+    float r = rgba.r;
+    float g = rgba.g;
+    float b = rgba.b;
+
+    // 计算Y值
+    float y = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    // 写入Y平面
+    imageStore(yPlane, coord, vec4(y, 0, 0, 1));
+
+    // 计算U和V（仅对每个2x2块的第一个像素处理，并平均）
+    if (coord.x % 2 == 0 && coord.y % 2 == 0) {
+        ivec2 uvCoord = coord / 2; // U和V平面坐标
+        // 平均2x2区域的U和V值
+        vec4 rgba00 = texelFetch(rgbaImage, coord, 0);
+        vec4 rgba01 = texelFetch(rgbaImage, coord + ivec2(0, 1), 0);
+        vec4 rgba10 = texelFetch(rgbaImage, coord + ivec2(1, 0), 0);
+        vec4 rgba11 = texelFetch(rgbaImage, coord + ivec2(1, 1), 0);
+
+        float r_avg = (rgba00.r + rgba01.r + rgba10.r + rgba11.r) / 4.0;
+        float g_avg = (rgba00.g + rgba01.g + rgba10.g + rgba11.g) / 4.0;
+        float b_avg = (rgba00.b + rgba01.b + rgba10.b + rgba11.b) / 4.0;
+
+        float u = -0.14713 * r_avg - 0.28886 * g_avg + 0.436 * b_avg + 0.5;
+        float v = 0.615 * r_avg - 0.51499 * g_avg - 0.10001 * b_avg + 0.5;
+
+        // 写入U和V平面
+        imageStore(uPlane, uvCoord, vec4(u, 0, 0, 1));
+        imageStore(vPlane, uvCoord, vec4(v, 0, 0, 1));
+    }
+}

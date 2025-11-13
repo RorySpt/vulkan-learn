@@ -17,6 +17,7 @@
 
 #include <format>
 //#include <print>
+#include <chrono>
 #include <map>
 #include <ranges>
 #include <unordered_set>
@@ -117,8 +118,8 @@ public:
         return bindingDescription;
     }
 
-    static consteval std::array<VkVertexInputAttributeDescription, details::arity<Vertex>()> getAttributeDescription() {
-        constexpr std::array<VkVertexInputAttributeDescription, details::arity<Vertex>()> attributeDescription{
+    static consteval std::array<VkVertexInputAttributeDescription, details::arity<Vertex>()> getAttributeDescriptions() {
+        constexpr std::array<VkVertexInputAttributeDescription, details::arity<Vertex>()> attributeDescriptions{
             VkVertexInputAttributeDescription{
                 .location = 0,
                 .binding = 0,
@@ -132,7 +133,7 @@ public:
                 .offset = offsetof(Vertex, color),
             }
         };
-        return attributeDescription;
+        return attributeDescriptions;
     }
 };
 
@@ -143,6 +144,7 @@ const std::vector<Vertex> vertices = {
     {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
 
+constexpr int MAX_FRAMES_IN_FLIGHT = 3;
 
 class HelloTriangleApplication {
 public:
@@ -221,25 +223,21 @@ private:
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        //glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+        glfwSetWindowUserPointer(window, this);
 
         glfwSetErrorCallback([](int error_code, const char* description) {
             fmt::println("[glfw]error {}, {}", error_code, description);
         });
+        glfwSetFramebufferSizeCallback(window, [](GLFWwindow* window, int width, int height) {
+            const auto app = static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+            app->framebufferResized = true;
+        });
     };
 
-    void createVertexBuffer() {
-        auto bindingDescription = VkBindingDescription<Vertex>::getBindingDescription();
-        auto attributeDescription = VkBindingDescription<Vertex>::getAttributeDescription();
-
-        VkBufferCreateInfo vkBufferCreateInfo{};
-        vkBufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        vkBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        vkBufferCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        vkBufferCreateInfo.size = sizeof(Vertex);
-    };
+    void createVertexBuffer();;
 
 
 
@@ -256,6 +254,7 @@ private:
 
 
     void createGraphicsPipeline();
+    void createComputePipeline();
     VkShaderModule createShaderModule(std::span<char> code);
 
     void createRenderPass();
@@ -265,6 +264,14 @@ private:
     void createCommandPool();
 
     void createCommandBuffer();
+
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+
+    void createSyncObject();
+
+    void cleanupSwapChain();
+
+    void recreateSwapChain();
 
     void initVulkan() {
         createInstance();
@@ -279,17 +286,21 @@ private:
         createFramebuffers();
         createCommandPool();
         createCommandBuffer();
-        //createVertexBuffer();
+        createSyncObject();
+        recreateSwapChain();
+        createVertexBuffer();
 
     }
 
+    void drawFrame();
+
     void mainLoop() {
+        auto tp = std::chrono::steady_clock::now();
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
-
-
-
+            drawFrame();
         }
+        vkDeviceWaitIdle(logicalDevice);
     }
 
     void cleanup();
@@ -312,7 +323,18 @@ private:
     VkPipeline graphicsPipeline;
     std::vector<VkFramebuffer> swapChainFramebuffers;
     VkCommandPool commandPool;
-    VkCommandBuffer commandBuffer;
+
+    std::vector<VkCommandBuffer> commandBuffers;
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
+    bool framebufferResized = false;
+    uint32_t currentFlightFrame = 0;
+
+
+    VkPipelineLayout compPipelineLayout;
+    VkPipeline computePipeline;
+    VkBuffer vertexBuffer;
 };
 
 
