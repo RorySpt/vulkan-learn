@@ -5,6 +5,8 @@
 #ifndef ZETAENGINE_TASK_QUEUE_H
 #define ZETAENGINE_TASK_QUEUE_H
 
+#include "helpers/helpers.h"
+
 #include <queue>
 #include <functional>
 #include <thread>
@@ -12,9 +14,6 @@
 #include <condition_variable>
 #include <atomic>
 #include <memory>
-#include <variant>
-#include <magic_enum/magic_enum.hpp>
-
 namespace task
 {
 class TaskQueue {
@@ -97,16 +96,19 @@ public:
     size_t executeCurrentThreadAll();
 
     // 执行指定线程的单个任务
-    bool executeThreadOne(std::thread::id threadId);
+    bool executeThreadOne(std::thread::id threadId) const;
 
     // 获取所有注册的线程ID
     std::vector<std::thread::id> getRegisteredThreads() const;
 
     // 获取任务队列数量
     size_t getQueueCount() const;
-
+    // 获取任务队列数量
+    size_t getQueueTaskCount(std::string_view name) const;
+    size_t getQueueTaskCount(std::thread::id id)const;
+    size_t getQueueTaskCount(EThreadType ThreadType)const;
     // 停止所有任务队列
-    void stopAll();
+    void stopAll() const;
 
     // 移除指定线程的任务队列
     bool unregisterThread(std::thread::id threadId);
@@ -114,10 +116,11 @@ public:
     // 移除当前线程的任务队列
     bool unregisterCurrentThread();
 
+
 private:
     bool enqueueToThread_inl(std::thread::id threadId, TaskQueue::Task task);
     // 获取指定线程的任务队列，危险！！
-    TaskQueue* getThreadQueue(std::thread::id threadId);
+    TaskQueue* getThreadQueue(std::thread::id threadId) const;
     mutable mutex mutex_;
     std::unordered_map<std::thread::id, std::unique_ptr<TaskQueue>> threadQueues_;
     std::unordered_map<std::string, std::thread::id> aliasThread_;
@@ -127,7 +130,10 @@ private:
 extern TaskScheduler g_TaskScheduler;
 inline bool AsyncTask(std::string_view alias, TaskQueue::Task task)
 {
-    return g_TaskScheduler.enqueueToThread(alias, std::move(task));
+    helpers::log_info("start enqueue task");
+    bool b = g_TaskScheduler.enqueueToThread(alias, std::move(task));
+    helpers::log_info("end enqueue task");
+    return b;
 }
 inline bool AsyncTask(EThreadType type, TaskQueue::Task task)
 {

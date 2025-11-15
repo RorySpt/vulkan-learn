@@ -2,8 +2,12 @@
 // Created by admin on 2025/11/4.
 //
 
-#include "TaskQueue.h"
-#include <chrono>
+#include "task_queue.h"
+
+#include "magic_enum/magic_enum.hpp"
+
+#include <ranges>
+
 namespace task
 {
     TaskScheduler g_TaskScheduler;
@@ -114,7 +118,7 @@ void TaskScheduler::registerCurrentThread(std::string_view alias)
 void TaskScheduler::registerThread(std::thread::id threadId, std::string_view alias)
 {
     lock_guard lock(mutex_);
-    if (threadQueues_.find(threadId) == threadQueues_.end())
+    if (!threadQueues_.contains(threadId))
     {
         threadQueues_[threadId] = std::make_unique<TaskQueue>();
     }
@@ -125,8 +129,7 @@ void TaskScheduler::registerThread(std::thread::id threadId, std::string_view al
 bool TaskScheduler::enqueueToThread(std::thread::id threadId, TaskQueue::Task task)
 {
     lock_guard lock(mutex_);
-    enqueueToThread_inl(threadId, std::move(task));
-    return false;
+    return enqueueToThread_inl(threadId, std::move(task));
 }
 bool TaskScheduler::enqueueToThread(EThreadType ThreadType, TaskQueue::Task task)
 {
@@ -138,8 +141,7 @@ bool TaskScheduler::enqueueToThread(EThreadType ThreadType, TaskQueue::Task task
     }
     const auto threadId = result->second;
 
-    enqueueToThread_inl(threadId, std::move(task));
-    return false;
+    return enqueueToThread_inl(threadId, std::move(task));
 }
 bool TaskScheduler::enqueueToThread(std::string_view name, TaskQueue::Task task)
 {
@@ -151,10 +153,8 @@ bool TaskScheduler::enqueueToThread(std::string_view name, TaskQueue::Task task)
     {
         return false;
     }
-
     const auto threadId = result->second;
-    enqueueToThread_inl(threadId, std::move(task));
-    return false;
+    return  enqueueToThread_inl(threadId, std::move(task));
 }
 TaskQueue* TaskScheduler::getCurrentThreadQueue()
 {
@@ -184,7 +184,7 @@ size_t TaskScheduler::executeCurrentThreadAll()
     auto queue = getCurrentThreadQueue();
     return queue ? queue->executeAll() : 0;
 }
-bool TaskScheduler::executeThreadOne(std::thread::id threadId)
+bool TaskScheduler::executeThreadOne(std::thread::id threadId) const
 {
     auto queue = getThreadQueue(threadId);
     return queue ? queue->executeOne() : false;
@@ -193,9 +193,9 @@ std::vector<std::thread::id> TaskScheduler::getRegisteredThreads() const
 {
     lock_guard lock(mutex_);
     std::vector<std::thread::id> threads;
-    for (const auto& pair : threadQueues_)
+    for (const auto& key : threadQueues_ | std::views::keys)
     {
-        threads.push_back(pair.first);
+        threads.push_back(key);
     }
     return threads;
 }
@@ -204,12 +204,33 @@ size_t TaskScheduler::getQueueCount() const
     lock_guard lock(mutex_);
     return threadQueues_.size();
 }
-void TaskScheduler::stopAll()
+size_t TaskScheduler::getQueueTaskCount(std::string_view name) const
 {
     lock_guard lock(mutex_);
-    for (auto& pair : threadQueues_)
+    const auto result = aliasThread_.find(std::string(name));
+    if (result == aliasThread_.end())
     {
-        pair.second->stop();
+        return false;
+    }
+    return getQueueTaskCount(result->second);
+}
+size_t TaskScheduler::getQueueTaskCount(std::thread::id id) const
+{
+    lock_guard lock(mutex_);
+    const auto queue = getThreadQueue(id);
+    if (!queue) return 0;
+    return queue->size();
+}
+size_t TaskScheduler::getQueueTaskCount(const EThreadType ThreadType) const
+{
+    return getQueueTaskCount(magic_enum::enum_name(ThreadType));
+}
+void TaskScheduler::stopAll() const
+{
+    lock_guard lock(mutex_);
+    for (const auto& val : threadQueues_ | std::views::values)
+    {
+        val->stop();
     }
 }
 bool TaskScheduler::unregisterThread(std::thread::id threadId)
@@ -233,7 +254,7 @@ bool TaskScheduler::enqueueToThread_inl(std::thread::id threadId, TaskQueue::Tas
     }
     return false;
 }
-TaskQueue* TaskScheduler::getThreadQueue(std::thread::id threadId)
+TaskQueue* TaskScheduler::getThreadQueue(std::thread::id threadId) const
 {
     lock_guard lock(mutex_);
     auto it = threadQueues_.find(threadId);
