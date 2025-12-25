@@ -1,7 +1,6 @@
 ﻿
 
 #include "HelloTriangleApplication.h"
-
 int main() {
     try
     {
