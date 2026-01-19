@@ -449,13 +449,13 @@ std::vector<uint32_t> HelloTriangleApplication::find_queue_families_index(
 {
     std::vector<vk::QueueFamilyProperties> queueFamilies = device.getQueueFamilyProperties();
 
-    namespace rv = std::ranges::views;
+    namespace rv = ranges::views;
 
     auto debug_info = queueFamilies | rv::transform([&](vk::QueueFamilyProperties& value)
     {
 
         return ::convert_flags_to_names( value.queueFlags);
-    }) | std::ranges::to<std::vector<std::string>>();
+    }) | ranges::to<std::vector<std::string>>();
 
     std::vector<int> vec = {10, 20, 30, 40, 50};
 
@@ -467,7 +467,7 @@ std::vector<uint32_t> HelloTriangleApplication::find_queue_families_index(
         }) | rv::transform([](auto&& value)
         {
             return std::get<0>(value);
-        }) | std::ranges::to<std::vector<uint32_t>>();
+        }) | ranges::to<std::vector<uint32_t>>();
 
 
     return Families;
@@ -603,7 +603,7 @@ void HelloTriangleApplication::pick_physical_device()
                      VK_VERSION_MINOR(deviceProperties.apiVersion),
                      VK_VERSION_PATCH(deviceProperties.apiVersion),
                  }) | std::ranges::views::transform(number_to_string)
-                 | std::ranges::views::join_with('.') | std::ranges::to<std::string>());
+                 | std::ranges::views::join_with('.') | ranges::to<std::string>());
 
 
     fmt::println("driverVersion     : {}", std::vector<uint32_t>({
@@ -611,7 +611,7 @@ void HelloTriangleApplication::pick_physical_device()
                      (deviceProperties.driverVersion >> 14) & 0x3FF,
                      deviceProperties.driverVersion & 0x3FFF,
                  }) | std::ranges::views::transform(std::bind(number_to_string, std::placeholders::_1, 16))
-                 | std::ranges::views::join_with('.') | std::ranges::to<std::string>());
+                 | std::ranges::views::join_with('.') | ranges::to<std::string>());
 
     fmt::println("vendorID          : {}", deviceProperties.vendorID);
     fmt::println("deviceID          : {}", deviceProperties.deviceID);
@@ -625,7 +625,7 @@ void HelloTriangleApplication::pick_physical_device()
                      char buf[buf_size]{};
                      std::to_chars_result result = std::to_chars(buf, buf + buf_size, c, 16);
                      return std::string(buf, result.ptr - buf);
-                 }) | std::ranges::views::join | std::ranges::to<std::string>());
+                 }) | std::ranges::views::join | ranges::to<std::string>());
 }
 
 void HelloTriangleApplication::populate_debug_messenger_create_info(
@@ -636,8 +636,8 @@ void HelloTriangleApplication::populate_debug_messenger_create_info(
                   | vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
                   | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError)
               .setMessageType(
-                  vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
-                  | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
+                  /*vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
+                  |*/ vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
                   | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance)
               .setPfnUserCallback(reinterpret_cast<vk::PFN_DebugUtilsMessengerCallbackEXT>(debug_callback));
 }
@@ -674,7 +674,7 @@ void HelloTriangleApplication::destroy_debug_utils_messenger_ext(VkInstance inst
 
 void HelloTriangleApplication::setup_debug_message()
 {
-    if (!k_enable_validation_layers) return;
+    if constexpr (!k_enable_validation_layers) return;
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
@@ -729,7 +729,7 @@ VkBool32 HelloTriangleApplication::debug_callback(VkDebugUtilsMessageSeverityFla
         {
             types.emplace_back("Dab");
         }
-        return types | std::ranges::views::join_with('|') | std::ranges::to<std::string>();
+        return types | std::ranges::views::join_with('|') | ranges::to<std::string>();
     };
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
@@ -791,7 +791,9 @@ void HelloTriangleApplication::create_instance()
 
     const auto extensions = get_required_extensions();
 
-    vk::InstanceCreateInfo instance_create_info({}, &info, extensions);
+    vk::InstanceCreateInfo instance_create_info;
+    instance_create_info.setPApplicationInfo(&info)
+        .setPEnabledExtensionNames(extensions);
 
     vk::DebugUtilsMessengerCreateInfoEXT debug_create_info{};
     if (k_enable_validation_layers)

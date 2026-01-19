@@ -4,12 +4,18 @@ project(${target_name})
 file(GLOB_RECURSE project_headers CONFIGURE_DEPENDS *.h *.hpp)
 file(GLOB_RECURSE project_sources CONFIGURE_DEPENDS *.c *.cpp)
 
-add_definitions(-D_GLIBCXX_USE_CXX11_ABI=4)
+# GLIBCXX ABI setting only for GCC compiler
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    #add_definitions(-D_GLIBCXX_USE_CXX11_ABI=4)
+endif()
+
 add_executable(${target_name}
         ${project_headers}
         ${project_sources})
 
-target_compile_options(${target_name} PRIVATE -Wno-unused-variable)
+target_link_libraries(${target_name} PRIVATE fast_io)
+
+# target_compile_options(${target_name} PRIVATE -Wno-unused-variable)
 
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     #std::print and std::println (requires linking with -lstdc++exp on Windows). by: https://gcc.gnu.org/gcc-14/changes.html#:~:text=std%3A%3Aprint%20and%20std%3A%3Aprintln%20(requires%20linking%20with%20%2Dlstdc%2B%2Bexp%20on%20Windows).
@@ -40,4 +46,3 @@ target_link_libraries(${target_name} PRIVATE fmt::fmt)
 
 find_package(range-v3 CONFIG REQUIRED)
 target_link_libraries(${target_name} PRIVATE range-v3::range-v3)
-

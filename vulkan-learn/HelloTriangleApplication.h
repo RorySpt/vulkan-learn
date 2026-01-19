@@ -30,8 +30,8 @@
 #include <glm/glm.hpp>
 
 #include "HelloTriangleApplication.h"
-#include "HelloTriangleApplication.h"
-#include "HelloTriangleApplication.h"
+
+
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
@@ -39,7 +39,7 @@ constexpr std::array<const char*, 1> k_vulkan_validation_layers = {
     "VK_LAYER_KHRONOS_validation"
 };
 const std::vector k_device_extensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
 #ifdef NODEBUG
 constexpr bool k_enable_validation_layers = false;
@@ -56,7 +56,7 @@ std::string convert_flags_to_names(uint32_t Flags)
         | rv::filter([&](auto enum_value) { return static_cast<uint32_t>(enum_value) & Flags; })
         | rv::transform([](auto enum_value) { return magic_enum::enum_name(enum_value); })
         | rv::join_with('|')
-        | std::ranges::to<std::string>();
+        | ranges::to<std::string>();
 }
 
 template <typename T>
@@ -68,7 +68,7 @@ std::string convert_flags_to_names(vk::Flags<T> Flags)
         | rv::filter([Flags](T enum_value) { return !!(enum_value & Flags); })
         | rv::transform([](T enum_value) { return magic_enum::enum_name(enum_value); })
         | rv::join_with('|')
-        | std::ranges::to<std::string>();
+        | ranges::to<std::string>();
 }
 
 
@@ -247,7 +247,7 @@ private:
         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void* pUserData);
 
-    std::vector<const char*> get_required_extensions();
+    static std::vector<const char*> get_required_extensions();
 
 
     void extension_check();

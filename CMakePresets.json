@@ -1,0 +1,110 @@
+﻿{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "vcpkg",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      },
+      "environment": {
+        "CMAKE_POLICY_VERSION_MINIMUM": "4.0",
+        "VCPKG_KEEP_ENV_VARS": "CMAKE_POLICY_VERSION_MINIMUM"
+      }
+    },
+    {
+      "name": "vcpkg-ninja",
+      "generator": "Ninja",
+      "inherits": ["vcpkg"]
+    },
+    {
+      "name": "vcpkg-ninja-multi",
+      "generator": "Ninja Multi-Config",
+      "inherits": ["vcpkg"]
+    },
+    {
+      "name": "vcpkg-linux",
+      "inherits": ["vcpkg"],
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-linux",
+        "VCPKG_HOST_TRIPLET": "x64-linux"
+      }
+    },
+    {
+      "name": "vcpkg-windows",
+      "inherits": ["vcpkg"],
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "VCPKG_HOST_TRIPLET": "x64-windows-static-md"
+      }
+    },
+    {
+      "name": "vcpkg-windows-vs",
+      "inherits": ["vcpkg-windows"],
+      "generator": "Visual Studio 17 2022"
+    },
+    {
+      "name": "vcpkg-clang",
+      "inherits": ["vcpkg-ninja-multi"],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "vcpkg-win-clang",
+      "inherits": ["vcpkg-clang"],
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-win-clang",
+        "VCPKG_HOST_TRIPLET": "x64-win-clang",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/extern/vcpkg/triplets/community"
+      }
+    },
+    {
+      "name": "vcpkg-linux-clang",
+      "inherits": ["vcpkg-clang"],
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-linux-clang",
+        "VCPKG_HOST_TRIPLET": "x64-linux-clang",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/extern/vcpkg/triplets/community",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -lc++abi -fuse-ld=lld -lanl",
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++ -lc++abi -fuse-ld=lld -lanl"
+      }
+    },
+    {
+      "name": "vcpkg-windows-clang-cl",
+      "inherits": ["vcpkg-windows"],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-clang-cl",
+        "VCPKG_HOST_TRIPLET": "x64-windows-clang-cl",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/extern/vcpkg/triplets/community",
+        "VCPKG_PLATFORM_TOOLSET": "ClangCL"
+      }
+    },
+    {
+      "name": "vcpkg-mingw-ucrt-clang",
+      "inherits": ["vcpkg-clang"],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static-clang",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-static-clang",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/extern/vcpkg/triplets/community",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++"
+      }
+    },
+    {
+      "name": "vcpkg-mingw-ucrt",
+      "inherits": ["vcpkg-clang"],
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
+        "VCPKG_HOST_TRIPLET": "x64-mingw-static"
+      }
+    }
+  ]
+}
