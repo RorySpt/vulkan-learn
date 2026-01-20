@@ -27,8 +27,8 @@
     },
     {
       "name": "vcpkg-linux",
-      "inherits": ["vcpkg"],
-      "hidden": true,
+      "inherits": ["vcpkg-ninja-multi"],
+      "hidden": false,
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-linux",
         "VCPKG_HOST_TRIPLET": "x64-linux"
