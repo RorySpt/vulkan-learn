@@ -1,0 +1,35 @@
+{
+  "name": "vulkan-learn",
+  "version-string": "1.0.0",
+  "builtin-baseline": "0804e3b55b7e435c593707071052363fa876f170",
+  "dependencies": [
+    {
+      "name": "fmt",
+      "version>=": "12.1.0"
+    },
+    {
+      "name": "glfw3",
+      "version>=": "3.4#1"
+    },
+    {
+      "name": "glm",
+      "version>=": "1.0.2"
+    },
+    {
+      "name": "imgui",
+      "version>=": "1.91.9"
+    },
+    {
+      "name": "magic-enum",
+      "version>=": "0.9.7#1"
+    },
+    {
+      "name": "range-v3",
+      "version>=": "0.12.0#4"
+    },
+    {
+      "name": "vulkan-headers",
+      "version>=": "1.4.309.0"
+    }
+  ]
+}
