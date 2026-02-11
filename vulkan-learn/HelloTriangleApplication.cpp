@@ -4,12 +4,58 @@
 
 #include "HelloTriangleApplication.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <range/v3/range.hpp>
+#include <iostream>
+#include <map>
 #include <queue>
 #include <random>
+#include <ranges>
 #include <set>
+#include <unordered_set>
+
+#include <fmt/printf.h>
+#include <magic_enum/magic_enum.hpp>
+#include <range/v3/all.hpp>
+
+#include "vulkan_utils.h"
+
+// ============ Helper templates ============
+
+template <typename T>
+    requires std::is_enum_v<T>
+std::string convert_flags_to_names(uint32_t Flags)
+{
+    namespace rv = std::ranges::views;
+    return magic_enum::enum_values<T>()
+        | rv::filter([&](auto enum_value) { return static_cast<uint32_t>(enum_value) & Flags; })
+        | rv::transform([](auto enum_value) { return magic_enum::enum_name(enum_value); })
+        | rv::join_with('|')
+        | ranges::to<std::string>();
+}
+
+template <typename T>
+    requires std::is_enum_v<T>
+std::string convert_flags_to_names(vk::Flags<T> Flags)
+{
+    namespace rv = std::ranges::views;
+    return magic_enum::enum_values<T>()
+        | rv::filter([Flags](T enum_value) { return !!(enum_value & Flags); })
+        | rv::transform([](T enum_value) { return magic_enum::enum_name(enum_value); })
+        | rv::join_with('|')
+        | ranges::to<std::string>();
+}
+
+namespace vk_pred
+{
+    inline bool is_vk_queue_graphics(int index, const vk::QueueFamilyProperties& queue_family_properties)
+    {
+        return !!(queue_family_properties.queueFlags & vk::QueueFlagBits::eGraphics);
+    }
+}
+
+// ============ Details namespace ============
 
 namespace details
 {
@@ -21,296 +67,19 @@ public:
     };
 };
 
-// 语言选择枚举
-enum class VkResultLang
-{
-    English,
-    Chinese
-};
-
-/**
- * @brief 获取 VkResult 的详细含义描述
- *
- * @param result Vulkan 返回的 VkResult 值
- * @param lang 选择返回英文还是中文描述 (默认英文)
- * @return const char* 描述字符串
- */
-inline constexpr std::string_view GetVkResultDescription(VkResult result, VkResultLang lang = VkResultLang::Chinese)
-{
-    bool is_zh = (lang == VkResultLang::Chinese);
-
-    switch (result)
-    {
-    // ==========================================================
-    // Success Codes (成功状态码)
-    // ==========================================================
-    case VK_SUCCESS:
-        return is_zh
-                   ? "命令成功完成"
-                   : "Command successfully completed";
-    case VK_NOT_READY:
-        return is_zh
-                   ? "Fence 或 Query 尚未完成"
-                   : "A fence or query has not yet completed";
-    case VK_TIMEOUT:
-        return is_zh
-                   ? "等待操作在指定时间内未完成"
-                   : "A wait operation has not completed in the specified time";
-    case VK_EVENT_SET:
-        return is_zh
-                   ? "事件(Event)已置位(Signaled)"
-                   : "An event is signaled";
-    case VK_EVENT_RESET:
-        return is_zh
-                   ? "事件(Event)已复位(Unsignaled)"
-                   : "An event is unsignaled";
-    case VK_INCOMPLETE:
-        return is_zh
-                   ? "返回数组过小，无法容纳所有结果"
-                   : "A return array was too small for the result";
-
-    // Provided by VK_KHR_swapchain
-    case VK_SUBOPTIMAL_KHR:
-        return is_zh
-                   ? "交换链不再完全匹配 Surface 属性，但仍可成功用于显示"
-                   : "A swapchain no longer matches the surface properties exactly, but can still be used to present to the surface successfully.";
-
-    // Provided by VK_KHR_deferred_host_operations
-    case VK_THREAD_IDLE_KHR:
-        return is_zh
-                   ? "延迟操作未完成，但当前线程暂无工作"
-                   : "A deferred operation is not complete but there is currently no work for this thread to do at the time of this call.";
-    case VK_THREAD_DONE_KHR:
-        return is_zh
-                   ? "延迟操作未完成，但已无剩余工作可分配给其他线程"
-                   : "A deferred operation is not complete but there is no work remaining to assign to additional threads.";
-    case VK_OPERATION_DEFERRED_KHR:
-        return is_zh
-                   ? "请求了延迟操作，且部分工作已被推迟"
-                   : "A deferred operation was requested and at least some of the work was deferred.";
-    case VK_OPERATION_NOT_DEFERRED_KHR:
-        return is_zh
-                   ? "请求了延迟操作，但没有操作被推迟"
-                   : "A deferred operation was requested and no operations were deferred.";
-
-    // Provided by VK_VERSION_1_3
-    case VK_PIPELINE_COMPILE_REQUIRED:
-        // Alias: VK_PIPELINE_COMPILE_REQUIRED_EXT
-        return is_zh
-                   ? "请求的管线创建需要编译，但应用要求不进行编译"
-                   : "A requested pipeline creation would have required compilation, but the application requested compilation to not be performed.";
-
-    // Provided by VK_KHR_pipeline_binary
-    case VK_PIPELINE_BINARY_MISSING_KHR:
-        return is_zh
-                   ? "尝试从内部缓存查询管线二进制文件，但缓存条目不存在"
-                   : "The application attempted to create a pipeline binary by querying an internal cache, but the internal cache entry did not exist.";
-
-    // Provided by VK_EXT_shader_object
-    case VK_INCOMPATIBLE_SHADER_BINARY_EXT:
-        return is_zh
-                   ? "提供的二进制 Shader 代码与此设备不兼容"
-                   : "The provided binary shader code is not compatible with this device.";
-
-    // ==========================================================
-    // Error Codes (错误状态码)
-    // ==========================================================
-    case VK_ERROR_OUT_OF_HOST_MEMORY:
-        return is_zh
-                   ? "主机内存(Host Memory)分配失败"
-                   : "A host memory allocation has failed.";
-    case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-        return is_zh
-                   ? "设备内存(Device Memory)分配失败"
-                   : "A device memory allocation has failed.";
-    case VK_ERROR_INITIALIZATION_FAILED:
-        return is_zh
-                   ? "对象初始化因实现特定的原因失败"
-                   : "Initialization of an object could not be completed for implementation-specific reasons.";
-    case VK_ERROR_DEVICE_LOST:
-        return is_zh
-                   ? "逻辑或物理设备已丢失 (Device Lost)"
-                   : "The logical or physical device has been lost.";
-    case VK_ERROR_MEMORY_MAP_FAILED:
-        return is_zh
-                   ? "内存对象映射失败"
-                   : "Mapping of a memory object has failed.";
-    case VK_ERROR_LAYER_NOT_PRESENT:
-        return is_zh
-                   ? "请求的 Layer 不存在或无法加载"
-                   : "A requested layer is not present or could not be loaded.";
-    case VK_ERROR_EXTENSION_NOT_PRESENT:
-        return is_zh
-                   ? "请求的扩展不支持"
-                   : "A requested extension is not supported.";
-    case VK_ERROR_FEATURE_NOT_PRESENT:
-        return is_zh
-                   ? "请求的特性(Feature)不支持"
-                   : "A requested feature is not supported.";
-    case VK_ERROR_INCOMPATIBLE_DRIVER:
-        return is_zh
-                   ? "驱动程序不支持请求的 Vulkan 版本或不兼容"
-                   : "The requested version of Vulkan is not supported by the driver or is otherwise incompatible.";
-    case VK_ERROR_TOO_MANY_OBJECTS:
-        return is_zh
-                   ? "此类对象的创建数量已达上限"
-                   : "Too many objects of the type have already been created.";
-    case VK_ERROR_FORMAT_NOT_SUPPORTED:
-        return is_zh
-                   ? "设备不支持请求的格式"
-                   : "A requested format is not supported on this device.";
-    case VK_ERROR_FRAGMENTED_POOL:
-        return is_zh
-                   ? "由于池内存碎片化，分配失败"
-                   : "A pool allocation has failed due to fragmentation of the pool's memory.";
-
-    // Provided by VK_KHR_surface
-    case VK_ERROR_SURFACE_LOST_KHR:
-        return is_zh
-                   ? "Surface 不再可用"
-                   : "A surface is no longer available.";
-    case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
-        return is_zh
-                   ? "请求的窗口已被 Vulkan 或其他 API 占用"
-                   : "The requested window is already in use by Vulkan or another API.";
-
-    // Provided by VK_KHR_swapchain
-    case VK_ERROR_OUT_OF_DATE_KHR:
-        return is_zh
-                   ? "Surface 已变更且与交换链不兼容 (Out of Date)"
-                   : "A surface has changed in such a way that it is no longer compatible with the swapchain.";
-
-    // Provided by VK_KHR_display_swapchain
-    case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR:
-        return is_zh
-                   ? "交换链使用的显示设备不兼容"
-                   : "The display used by a swapchain does not use the same presentable image layout, or is incompatible.";
-
-    // Provided by VK_NV_glsl_shader
-    case VK_ERROR_INVALID_SHADER_NV:
-        return is_zh
-                   ? "一个或多个 Shader 编译或链接失败"
-                   : "One or more shaders failed to compile or link.";
-
-    // Provided by VK_VERSION_1_1
-    case VK_ERROR_OUT_OF_POOL_MEMORY:
-        // Alias: VK_ERROR_OUT_OF_POOL_MEMORY_KHR
-        return is_zh
-                   ? "池内存分配失败"
-                   : "A pool memory allocation has failed.";
-
-    // Provided by VK_VERSION_1_1
-    case VK_ERROR_INVALID_EXTERNAL_HANDLE:
-        // Alias: VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR
-        return is_zh
-                   ? "外部句柄无效"
-                   : "An external handle is not a valid handle of the specified type.";
-
-    // Provided by VK_VERSION_1_2
-    case VK_ERROR_FRAGMENTATION:
-        // Alias: VK_ERROR_FRAGMENTATION_EXT
-        return is_zh
-                   ? "由于碎片化，描述符池创建失败"
-                   : "A descriptor pool creation has failed due to fragmentation.";
-
-    // Provided by VK_VERSION_1_2
-    case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS:
-        // Alias: VK_ERROR_INVALID_DEVICE_ADDRESS_EXT
-        // Alias: VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR
-        return is_zh
-                   ? "请求的地址不可用，导致缓冲创建或内存分配失败"
-                   : "A buffer creation or memory allocation failed because the requested address is not available.";
-
-    // Provided by VK_EXT_full_screen_exclusive
-    case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
-        return is_zh
-                   ? "独占全屏模式丢失"
-                   : "An operation on a swapchain failed as it did not have exclusive full-screen access.";
-
-    // Provided by VK_VERSION_1_0 (Optimized out by default usually, but valid return code)
-    case VK_ERROR_VALIDATION_FAILED_EXT:
-        // Note: VK_ERROR_VALIDATION_FAILED_EXT is an alias for value -1000011001
-        // Usually handled by layers, but defined in enum.
-        return is_zh
-                   ? "检测到无效用法 (Validation Failed)"
-                   : "A command failed because invalid usage was detected by the implementation or a validation layer.";
-
-    // Provided by VK_EXT_image_compression_control
-    case VK_ERROR_COMPRESSION_EXHAUSTED_EXT:
-        return is_zh
-                   ? "图像创建失败，压缩所需内部资源耗尽"
-                   : "An image creation failed because internal resources required for compression are exhausted.";
-
-    // Provided by VK_KHR_video_queue
-    case VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR:
-        return is_zh
-                   ? "不支持请求的 VkImageUsageFlags"
-                   : "The requested VkImageUsageFlags are not supported.";
-    case VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR:
-        return is_zh
-                   ? "不支持请求的视频图像布局"
-                   : "The requested video picture layout is not supported.";
-    case VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR:
-        return is_zh
-                   ? "不支持指定的视频配置操作"
-                   : "A video profile operation specified via VkVideoProfileInfoKHR::videoCodecOperation is not supported.";
-    case VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR:
-        return is_zh
-                   ? "不支持请求的视频配置格式参数"
-                   : "Format parameters in a requested VkVideoProfileInfoKHR chain are not supported.";
-    case VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR:
-        return is_zh
-                   ? "不支持请求的视频配置编解码器参数"
-                   : "Codec-specific parameters in a requested VkVideoProfileInfoKHR chain are not supported.";
-    case VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR:
-        return is_zh
-                   ? "不支持指定的视频标准版本"
-                   : "The specified video Std header version is not supported.";
-
-    // Provided by VK_KHR_video_encode_queue
-    case VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR:
-        return is_zh
-                   ? "视频标准参数无效或不符合语义要求"
-                   : "The specified Video Std parameters do not adhere to the syntactic or semantic requirements.";
-
-    // Provided by VK_VERSION_1_4
-    case VK_ERROR_NOT_PERMITTED:
-        // Alias: VK_ERROR_NOT_PERMITTED_EXT, VK_ERROR_NOT_PERMITTED_KHR
-        return is_zh
-                   ? "权限不足，请求的高优先级被拒绝"
-                   : "The driver implementation has denied a request to acquire a priority above the default priority.";
-
-    // Provided by VK_KHR_pipeline_binary
-    case VK_ERROR_NOT_ENOUGH_SPACE_KHR:
-        return is_zh
-                   ? "应用程序提供的空间不足以返回所有数据"
-                   : "The application did not provide enough space to return all the required data.";
-
-    // Provided by VK_VERSION_1_0
-    case VK_ERROR_UNKNOWN:
-        return is_zh
-                   ? "发生未知错误"
-                   : "An unknown error has occurred.";
-
-    default:
-        return is_zh
-                   ? "未知的 VkResult 代码"
-                   : "Unknown VkResult code";
-    }
-}
-
 void err_check(const VkResult result, std::string_view message)
 {
     if (result != VK_SUCCESS)
     {
         throw VkErrorException(fmt::format("{}({}), {}", magic_enum::enum_name<VkResult>(result),
-                                           GetVkResultDescription(result), message));
+                                           vulkan_utils::GetVkResultDescription(result), message));
     }
 }
-}
 
-namespace vk_pred
+void err_check(const vk::Result result, std::string_view message)
 {
+    err_check(static_cast<VkResult>(result), message);
+}
 }
 
 std::string details::get_project_dir()
@@ -329,24 +98,21 @@ std::vector<char> details::read_file(const std::string& filePath)
     return {};
 }
 
-bool HelloTriangleApplication::check_validation_layer_support(
+bool HelloTriangleApplication::check_instance_layer_support(
     std::span<const char* const> layers = k_vulkan_validation_layers)
 {
-    uint32_t layerCount;
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-    std::vector<VkLayerProperties> availableLayers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+    auto layer_properties = vk::enumerateInstanceLayerProperties();
 
-    std::unordered_set<std::string_view> availableLayersName;
+    std::unordered_set<std::string_view> layer_names;
 
-    for (const auto& availableLayer : availableLayers)
+    for (const auto& available_layer : layer_properties)
     {
-        availableLayersName.emplace(availableLayer.layerName);
+        layer_names.emplace(available_layer.layerName);
     }
 
     if (std::ranges::any_of(layers, [&](const auto& layerName)
     {
-        return !availableLayersName.contains(layerName);
+        return !layer_names.contains(layerName);
     }))
     {
         return false;
@@ -354,13 +120,10 @@ bool HelloTriangleApplication::check_validation_layer_support(
     return true;
 };
 
-bool HelloTriangleApplication::check_device_extensions_support(const VkPhysicalDevice device,
+bool HelloTriangleApplication::check_device_extensions_support(const vk::PhysicalDevice device,
                                                                const std::span<const char* const> extensions)
 {
-    uint32_t extensionCount;
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
-    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+    auto availableExtensions = device.enumerateDeviceExtensionProperties();
     std::set<std::string_view> requiredExtensions(extensions.begin(), extensions.end());
     for (const auto& [extensionName, specVersion] : availableExtensions)
     {
@@ -382,70 +145,42 @@ void HelloTriangleApplication::create_logical_device()
 
     std::set<uint32_t> uniqueQueueFamilies = {graphicQueueFamilyIndex, presentQueueFamilyIndex};
 
-    std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
+    float queuePriority = 1.0f;
+    std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
     for (auto queueFamilies : uniqueQueueFamilies)
     {
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = queueFamilies;
-        queueCreateInfo.queueCount = 1;
-        float queuePriority = 1.0f;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        queue_create_infos.push_back(queueCreateInfo);
+        queue_create_infos.emplace_back(vk::DeviceQueueCreateFlags{}, queueFamilies, 1, &queuePriority);
     }
 
+    vk::PhysicalDeviceFeatures deviceFeatures{};
 
-    VkPhysicalDeviceFeatures deviceFeatures{};
+    vk::DeviceCreateInfo createInfo{};
+    createInfo.setQueueCreateInfos(queue_create_infos)
+              .setPEnabledFeatures(&deviceFeatures)
+              .setPEnabledExtensionNames(k_device_extensions);
 
-    VkDeviceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-
-    createInfo.pQueueCreateInfos = queue_create_infos.data();
-    createInfo.queueCreateInfoCount = queue_create_infos.size();
-
-    createInfo.pEnabledFeatures = &deviceFeatures;
-
-    createInfo.enabledExtensionCount = k_device_extensions.size();
-    createInfo.ppEnabledExtensionNames = k_device_extensions.data();
-
-    details::err_check(vkCreateDevice(physical_device_, &createInfo, nullptr, &device_),
-                       "failed to create logical device!");
+    device_ = physical_device_.createDevice(createInfo);
 
     fmt::println("{}", "create logicalDevice");
 
-    vkGetDeviceQueue(device_, graphicQueueFamilyIndex, 0, &present_queue_);
-    vkGetDeviceQueue(device_, presentQueueFamilyIndex, 0, &graphics_queue_);
+    present_queue_ = device_.getQueue(graphicQueueFamilyIndex, 0);
+    graphics_queue_ = device_.getQueue(presentQueueFamilyIndex, 0);
 }
 
 
 HelloTriangleApplication::SwapChainSupportDetails HelloTriangleApplication::query_swap_chain_support(
-    VkPhysicalDevice device)
+    vk::PhysicalDevice device)
 {
     SwapChainSupportDetails details;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface_, &details.capabilities);
-    uint32_t formatCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface_, &formatCount, nullptr);
-
-    if (formatCount != 0)
-    {
-        details.formats.resize(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface_, &formatCount, details.formats.data());
-    }
-
-    uint32_t presentModeCount;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface_, &presentModeCount, nullptr);
-    if (presentModeCount != 0)
-    {
-        details.presentModes.resize(presentModeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface_, &presentModeCount, details.presentModes.data());
-    }
-
+    details.capabilities = device.getSurfaceCapabilitiesKHR(surface_);
+    details.formats = device.getSurfaceFormatsKHR(surface_);
+    details.presentModes = device.getSurfacePresentModesKHR(surface_);
     return details;
 }
 
 
 std::vector<uint32_t> HelloTriangleApplication::find_queue_families_index(
-    const vk::PhysicalDevice device, std::function<bool(int, const VkQueueFamilyProperties&)> pred) const
+    const vk::PhysicalDevice device, std::function<bool(int, const vk::QueueFamilyProperties&)> pred) const
 {
     std::vector<vk::QueueFamilyProperties> queueFamilies = device.getQueueFamilyProperties();
 
@@ -453,8 +188,7 @@ std::vector<uint32_t> HelloTriangleApplication::find_queue_families_index(
 
     auto debug_info = queueFamilies | rv::transform([&](vk::QueueFamilyProperties& value)
     {
-
-        return ::convert_flags_to_names( value.queueFlags);
+        return ::convert_flags_to_names(value.queueFlags);
     }) | ranges::to<std::vector<std::string>>();
 
     std::vector<int> vec = {10, 20, 30, 40, 50};
@@ -474,7 +208,7 @@ std::vector<uint32_t> HelloTriangleApplication::find_queue_families_index(
 }
 
 HelloTriangleApplication::QueueFamilyIndices HelloTriangleApplication::find_queue_families_index(
-    VkPhysicalDevice device)
+    vk::PhysicalDevice device)
 {
     const auto graphic_indices = find_queue_families_index(physical_device_, vk_pred::is_vk_queue_graphics);
     const auto present_indices = find_queue_families_index(physical_device_,
@@ -489,11 +223,10 @@ HelloTriangleApplication::QueueFamilyIndices HelloTriangleApplication::find_queu
 }
 
 uint32_t HelloTriangleApplication::find_memory_type(uint32_t typeFilter,
-                                                    VkMemoryPropertyFlags properties)
+                                                    vk::MemoryPropertyFlags properties)
 {
-    VkPhysicalDeviceMemoryProperties memoryProperties;
-    vkGetPhysicalDeviceMemoryProperties(physical_device_, &memoryProperties);
-    for (int i = 0; i < memoryProperties.memoryTypeCount; i++)
+    auto memoryProperties = physical_device_.getMemoryProperties();
+    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++)
     {
         if (typeFilter & (1 << i) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
         {
@@ -503,16 +236,14 @@ uint32_t HelloTriangleApplication::find_memory_type(uint32_t typeFilter,
     throw std::runtime_error("Memory type does not match memory type");
 }
 
-int HelloTriangleApplication::rate_device_suitability(VkPhysicalDevice device)
+int HelloTriangleApplication::rate_device_suitability(vk::PhysicalDevice device)
 {
-    VkPhysicalDeviceProperties deviceProperties;
-    VkPhysicalDeviceFeatures deviceFeatures;
-    vkGetPhysicalDeviceProperties(device, &deviceProperties);
-    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+    auto deviceProperties = device.getProperties();
+    auto deviceFeatures = device.getFeatures();
     int score = 0;
 
     // Discrete GPUs have a significant performance advantage
-    if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+    if (deviceProperties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu)
     {
         score += 1000;
     }
@@ -563,7 +294,7 @@ void HelloTriangleApplication::pick_physical_device()
     };
 
     // Use an ordered map to automatically sort candidates by increasing score
-    std::multimap<int, VkPhysicalDevice> candidates;
+    std::multimap<int, vk::PhysicalDevice> candidates;
 
     for (const auto& device : physical_devices | std::ranges::views::filter(is_device_suitable))
     {
@@ -580,13 +311,12 @@ void HelloTriangleApplication::pick_physical_device()
     {
         throw std::runtime_error("failed to find a suitable GPU!");
     }
-    if (physical_device_ == VK_NULL_HANDLE)
+    if (!physical_device_)
     {
         throw std::runtime_error("failed to find suited physical device");
     }
 
-    VkPhysicalDeviceProperties deviceProperties;
-    vkGetPhysicalDeviceProperties(physical_device_, &deviceProperties);
+    auto deviceProperties = physical_device_.getProperties();
 
 
     auto number_to_string = [](auto& c, int base = 10)
@@ -760,24 +490,9 @@ std::vector<const char*> HelloTriangleApplication::get_required_extensions()
     return extensions;
 }
 
-
-void HelloTriangleApplication::extension_check()
-{
-    uint32_t extensionCount = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-    std::vector<VkExtensionProperties> extensions(extensionCount);
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
-    std::cout << "available extensions:\n";
-
-    for (const auto& extension : extensions)
-    {
-        std::cout << '\t' << extension.extensionName << '\n';
-    }
-}
-
 void HelloTriangleApplication::create_instance()
 {
-    if (k_enable_validation_layers && !check_validation_layer_support())
+    if (k_enable_validation_layers && !check_instance_layer_support())
     {
         throw std::runtime_error("validation layers requested but not available!");
     }
@@ -793,45 +508,47 @@ void HelloTriangleApplication::create_instance()
 
     vk::InstanceCreateInfo instance_create_info;
     instance_create_info.setPApplicationInfo(&info)
-        .setPEnabledExtensionNames(extensions);
+                        .setPEnabledExtensionNames(extensions);
 
-    vk::DebugUtilsMessengerCreateInfoEXT debug_create_info{};
-    if (k_enable_validation_layers)
+    if (std::ranges::contains(extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
     {
+        instance_create_info.setPEnabledLayerNames(k_vulkan_validation_layers);
+
+        vk::DebugUtilsMessengerCreateInfoEXT debug_create_info{};
         populate_debug_messenger_create_info(debug_create_info);
-        instance_create_info.setPEnabledLayerNames(k_vulkan_validation_layers)
-                            .setPNext(&debug_create_info);
+
+        instance_create_info.setPNext(&debug_create_info);
     }
 
     vk_instance_ = vk::createInstance(instance_create_info);
 }
 
-VkSurfaceFormatKHR HelloTriangleApplication::choose_swap_surface_format(
-    const std::vector<VkSurfaceFormatKHR>& availableFormats)
+vk::SurfaceFormatKHR HelloTriangleApplication::choose_swap_surface_format(
+    const std::vector<vk::SurfaceFormatKHR>& availableFormats)
 {
     for (const auto& availableFormat : availableFormats)
     {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace ==
-            VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        if (availableFormat.format == vk::Format::eB8G8R8A8Srgb && availableFormat.colorSpace ==
+            vk::ColorSpaceKHR::eSrgbNonlinear)
             return availableFormat;
     }
     return availableFormats.front();
 }
 
-VkPresentModeKHR HelloTriangleApplication::choose_swap_present_mode(
-    const std::vector<VkPresentModeKHR>& availablePresentModes)
+vk::PresentModeKHR HelloTriangleApplication::choose_swap_present_mode(
+    const std::vector<vk::PresentModeKHR>& availablePresentModes)
 {
     for (const auto& presentMode : availablePresentModes)
     {
-        if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+        if (presentMode == vk::PresentModeKHR::eMailbox)
         {
             return presentMode;
         }
     }
-    return VK_PRESENT_MODE_FIFO_KHR;
+    return vk::PresentModeKHR::eFifo;
 }
 
-VkExtent2D HelloTriangleApplication::choose_swap_extent(const VkSurfaceCapabilitiesKHR& capabilities)
+vk::Extent2D HelloTriangleApplication::choose_swap_extent(const vk::SurfaceCapabilitiesKHR& capabilities)
 {
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
     {
@@ -842,7 +559,7 @@ VkExtent2D HelloTriangleApplication::choose_swap_extent(const VkSurfaceCapabilit
         int width, height;
         glfwGetFramebufferSize(window_, &width, &height);
 
-        VkExtent2D actualExtent = {
+        vk::Extent2D actualExtent = {
             static_cast<uint32_t>(width),
             static_cast<uint32_t>(height)
         };
@@ -898,7 +615,7 @@ void HelloTriangleApplication::create_index_buffer()
     memcpy(data, indices.data(), buffer_size);
     vkUnmapMemory(device_, staging_buffer_memory);
 
-    create_buffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    create_buffer(buffer_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                   index_buffer_, index_buffer_memory_);
 
@@ -971,8 +688,8 @@ void HelloTriangleApplication::create_swap_chain()
 {
     const auto [capabilities, formats, present_modes] = query_swap_chain_support(physical_device_);
     auto [format, color_space] = choose_swap_surface_format(formats);
-    const VkPresentModeKHR presentMode = choose_swap_present_mode(present_modes);
-    const VkExtent2D extent = choose_swap_extent(capabilities);
+    const auto presentMode = choose_swap_present_mode(present_modes);
+    const auto extent = choose_swap_extent(capabilities);
 
     uint32_t image_count = capabilities.minImageCount + 1;
 
@@ -981,45 +698,35 @@ void HelloTriangleApplication::create_swap_chain()
         image_count = capabilities.maxImageCount;
     }
 
-    VkSwapchainCreateInfoKHR create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    create_info.surface = surface_;
-    create_info.minImageCount = image_count;
-    create_info.imageFormat = format;
-    create_info.imageColorSpace = color_space;
-    create_info.imageExtent = extent;
-    create_info.imageArrayLayers = 1;
-    create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
+    vk::SwapchainCreateInfoKHR create_info{};
+    create_info.setSurface(surface_)
+               .setMinImageCount(image_count)
+               .setImageFormat(format)
+               .setImageColorSpace(color_space)
+               .setImageExtent(extent)
+               .setImageArrayLayers(1)
+               .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment);
 
     if (const auto& [graphic_index, present_index] = find_queue_families_index(physical_device_); graphic_index !=
         present_index)
     {
         std::array<uint32_t, 2> queueFamilies{graphic_index.value(), present_index.value()};
-        create_info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
-        create_info.queueFamilyIndexCount = 2;
-        create_info.pQueueFamilyIndices = queueFamilies.data();
+        create_info.setImageSharingMode(vk::SharingMode::eConcurrent)
+                   .setQueueFamilyIndices(queueFamilies);
     }
     else
     {
-        create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        create_info.queueFamilyIndexCount = 0; // Optional
-        create_info.pQueueFamilyIndices = nullptr; // Optional
+        create_info.setImageSharingMode(vk::SharingMode::eExclusive);
     }
-    create_info.preTransform = capabilities.currentTransform;
-    create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    create_info.setPreTransform(capabilities.currentTransform)
+               .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
+               .setPresentMode(presentMode)
+               .setClipped(true)
+               .setOldSwapchain(nullptr);
 
-    create_info.presentMode = presentMode;
-    create_info.clipped = VK_TRUE;
-    create_info.oldSwapchain = VK_NULL_HANDLE;
+    swap_chain_ = device_.createSwapchainKHR(create_info);
 
-    details::err_check(vkCreateSwapchainKHR(device_, &create_info, nullptr, &swap_chain_),
-                       "Failed to create a swapchain");
-
-    vkGetSwapchainImagesKHR(device_, swap_chain_, &image_count, nullptr);
-    swap_chain_images_.resize(image_count);
-    vkGetSwapchainImagesKHR(device_, swap_chain_, &image_count, swap_chain_images_.data());
-
+    swap_chain_images_ = device_.getSwapchainImagesKHR(swap_chain_);
 
     swap_chain_image_format_ = format;
     swap_chain_extent_ = extent;
@@ -1031,29 +738,23 @@ void HelloTriangleApplication::create_image_view()
 
     for (size_t i = 0; i < swap_chain_images_.size(); ++i)
     {
-        VkImageViewCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.image = swap_chain_images_[i];
+        vk::ImageViewCreateInfo createInfo{};
+        createInfo.setImage(swap_chain_images_[i])
+                  .setViewType(vk::ImageViewType::e2D)
+                  .setFormat(swap_chain_image_format_);
 
-        // viewType 和 format 字段指定应如何解释图像数据。
-        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        createInfo.format = swap_chain_image_format_;
+        createInfo.components.r = vk::ComponentSwizzle::eIdentity;
+        createInfo.components.g = vk::ComponentSwizzle::eIdentity;
+        createInfo.components.b = vk::ComponentSwizzle::eIdentity;
+        createInfo.components.a = vk::ComponentSwizzle::eIdentity;
 
-        // 字段允许您对颜色通道进行混合。例如，您可以将所有通道映射到单色纹理的红色通道。您还可以将常量值 0 和 1 映射到通道。在我们的例子中，我们将坚持默认映射。
-        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-
-        // subresourceRange 字段描述了图像的用途以及应访问图像的哪一部分。我们的图像将用作颜色目标，没有任何 mipmap 级别或多个图层。
-        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        createInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
         createInfo.subresourceRange.baseMipLevel = 0;
         createInfo.subresourceRange.levelCount = 1;
         createInfo.subresourceRange.baseArrayLayer = 0;
         createInfo.subresourceRange.layerCount = 1;
 
-        details::err_check(vkCreateImageView(device_, &createInfo, nullptr, &swap_chain_image_views_[i]),
-                           "Failed to create a image view");
+        swap_chain_image_views_[i] = device_.createImageView(createInfo);
     }
 }
 
@@ -1082,8 +783,8 @@ void HelloTriangleApplication::create_graphics_pipeline()
     VkPipelineShaderStageCreateInfo shaderStageCreateInfo[] = {vertShaderStageCreateInfo, fragShaderCreateInfo};
 
 
-    auto bindingDescription = VkBindingDescription<Vertex>::get_binding_description();
-    auto attributeDescriptions = VkBindingDescription<Vertex>::get_attribute_descriptions();
+    auto bindingDescription = Vertex::get_binding_description();
+    auto attributeDescriptions = Vertex::get_attribute_descriptions();
     // 顶点输入
     // `VkPipelineVertexInputStateCreateInfo` 结构描述了将传递给顶点着色器的顶点数据的格式。
     // 它大致通过两种方式描述：
@@ -1107,7 +808,7 @@ void HelloTriangleApplication::create_graphics_pipeline()
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
     // 视口和剪裁矩形
@@ -1440,11 +1141,9 @@ void HelloTriangleApplication::record_command_buffer(VkCommandBuffer commandBuff
     VkBuffer vertexBuffers[] = {vertex_buffer_};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+    vkCmdBindIndexBuffer(commandBuffer, index_buffer_, 0, VK_INDEX_TYPE_UINT16);
 
-    for (auto i = 0; i < 1; ++i)
-    {
-        vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
-    }
+    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
 
     vkCmdEndRenderPass(commandBuffer);
@@ -1601,4 +1300,78 @@ void HelloTriangleApplication::cleanup()
     vkDestroyInstance(vk_instance_, nullptr);
     glfwDestroyWindow(window_);
     glfwTerminate();
+}
+
+void HelloTriangleApplication::run()
+{
+    init_window();
+    init_vulkan();
+    main_loop();
+    cleanup();
+}
+
+void HelloTriangleApplication::init_window()
+{
+    glfwInit();
+
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+    window_ = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+    glfwSetWindowUserPointer(window_, this);
+
+    glfwSetErrorCallback([](int error_code, const char* description)
+    {
+        fmt::println("[glfw]error {}, {}", error_code, description);
+    });
+    glfwSetFramebufferSizeCallback(window_, [](GLFWwindow* window, int width, int height)
+    {
+        const auto app = static_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+        app->framebuffer_resized_ = true;
+    });
+}
+
+void HelloTriangleApplication::create_surface()
+{
+    if (glfwCreateWindowSurface(vk_instance_, window_, nullptr, reinterpret_cast<VkSurfaceKHR*>(&surface_)) != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create window surface");
+    }
+}
+
+void HelloTriangleApplication::init_vulkan()
+{
+    create_instance();
+    create_surface();
+    pick_physical_device();
+    create_logical_device();
+    create_swap_chain();
+    create_image_view();
+    create_render_pass();
+    create_graphics_pipeline();
+    create_framebuffers();
+    create_command_pool();
+    create_vertex_buffer();
+    create_index_buffer();
+    create_command_buffer();
+    create_sync_object();
+    recreate_swap_chain();
+
+    std::cout << std::flush;
+    std::cerr << std::flush;
+}
+
+void HelloTriangleApplication::main_loop()
+{
+    while (!glfwWindowShouldClose(window_))
+    {
+        glfwPollEvents();
+        draw_frame();
+    }
+    vkDeviceWaitIdle(device_);
+}
+
+bool HelloTriangleApplication::is_present_support(const int index,
+                                                   const vk::QueueFamilyProperties& queue_family_properties) const
+{
+    return physical_device_.getSurfaceSupportKHR(index, surface_);
 }
